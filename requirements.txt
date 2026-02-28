@@ -6,8 +6,9 @@ scipy
 groq
 kaggle
 fpdf2
-kaleido==0.1.0.post1
+kaleido
 python-dotenv
+
 
 
 
