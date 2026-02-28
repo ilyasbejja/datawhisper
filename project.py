@@ -801,9 +801,24 @@ import os
 import tempfile
 from fpdf import FPDF
 
+import os
+import tempfile
+
 def create_pdf_report(df_name, profile, summary_text, insights, df):
     if not FPDF_AVAILABLE:
         return None
+
+    # (Optionnel) config Kaleido/Chromium utile sur environnements cloud
+    try:
+        import plotly.io as pio
+        pio.kaleido.scope.chromium_args = tuple(
+            arg for arg in pio.kaleido.scope.chromium_args
+            if arg != "--disable-dev-shm-usage"
+        )
+        # parfois ça aide sur Linux sandbox
+        pio.kaleido.scope.chromium_args = pio.kaleido.scope.chromium_args + ("--single-process",)
+    except Exception:
+        pass
 
     pdf = FPDF()
     pdf.add_page()
@@ -860,38 +875,49 @@ def create_pdf_report(df_name, profile, summary_text, insights, df):
                 colorway=PALETTE,
                 margin=dict(l=20, r=20, t=60, b=20),
                 showlegend=True,
-                title=dict(text=f"<b>{clean_title}</b>", font=dict(size=16, color="#1a2b4c"), x=0.5, xanchor="center"),
+                title=dict(
+                    text=f"<b>{clean_title}</b>",
+                    font=dict(size=16, color="#1a2b4c"),
+                    x=0.5,
+                    xanchor="center",
+                ),
             )
-            fig.update_xaxes(gridcolor="rgba(26, 43, 76, 0.1)", title_font=dict(color="#1a2b4c"), tickfont=dict(color="#1a2b4c"))
-            fig.update_yaxes(gridcolor="rgba(26, 43, 76, 0.1)", title_font=dict(color="#1a2b4c"), tickfont=dict(color="#1a2b4c"))
+            fig.update_xaxes(
+                gridcolor="rgba(26, 43, 76, 0.1)",
+                title_font=dict(color="#1a2b4c"),
+                tickfont=dict(color="#1a2b4c"),
+            )
+            fig.update_yaxes(
+                gridcolor="rgba(26, 43, 76, 0.1)",
+                title_font=dict(color="#1a2b4c"),
+                tickfont=dict(color="#1a2b4c"),
+            )
 
             for trace in fig.data:
                 try:
                     trace.showlegend = True
-                    if not getattr(trace, "name", None):
+                    if not getattr(trace, "name", None) or trace.name == "":
                         trace.name = str(ins.get("y_col") or ins.get("x_col") or "Data")
                 except Exception:
                     pass
 
-            # --- Export image (best effort) ---
-            wrote_image = False
             tmp_path = None
             try:
-                # Parfois nécessaire dans certains environnements
-                import kaleido  # noqa: F401  [web:75]
+                # import explicite parfois nécessaire
+                import kaleido  # noqa: F401
 
                 fd, tmp_path = tempfile.mkstemp(suffix=".png")
                 os.close(fd)
 
                 fig.write_image(tmp_path, format="png", engine="kaleido", width=700, height=400)
                 pdf.image(tmp_path, w=170)
-                wrote_image = True
 
-            except Exception:
-                # Sur Streamlit Cloud c’est fréquent -> on continue sans image
+            except Exception as e:
+                # si tu veux absolument pas de texte d'erreur dans le PDF, remplace tout le bloc par: pass
                 pdf.set_font("Arial", "I", 9)
                 pdf.set_text_color(200, 0, 0)
-                pdf.cell(0, 7, txt="[ Chart image not available on this environment ]", ln=True)
+                msg = str(e).replace("\n", " ")
+                pdf.cell(0, 7, txt=f"[ Chart export failed: {msg[:80]} ]", ln=True)
                 pdf.set_text_color(*TEXT_BLACK)
 
             finally:
@@ -942,7 +968,6 @@ def create_pdf_report(df_name, profile, summary_text, insights, df):
 
     pdf_out = pdf.output(dest="S")
     return pdf_out.encode("latin-1") if isinstance(pdf_out, str) else bytes(pdf_out)
-
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1283,4 +1308,5 @@ elif st.session_state.view == "dashboard":
         with tab_stats:
 
             st.dataframe(df.describe(include="all").T, use_container_width=True)
+
 
