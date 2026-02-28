@@ -797,6 +797,10 @@ def render_overview_charts(df: pd.DataFrame, profile: dict):
 # ─────────────────────────────────────────────────────────────
 # PDF REPORT GENERATOR
 # ─────────────────────────────────────────────────────────────
+import os
+import tempfile
+from fpdf import FPDF
+
 def create_pdf_report(df_name, profile, summary_text, insights, df):
     if not FPDF_AVAILABLE:
         return None
@@ -810,49 +814,42 @@ def create_pdf_report(df_name, profile, summary_text, insights, df):
     TEXT_BLACK = (50, 50, 50)
     BG_LIGHT = (240, 244, 250)
 
-    # Title
-    pdf.set_font("Arial", 'B', 22)
+    pdf.set_font("Arial", "B", 22)
     pdf.set_text_color(*PRIMARY_BLUE)
-    pdf.cell(0, 15, txt="DataWhisper Analysis Report", ln=True, align='C')
+    pdf.cell(0, 15, txt="DataWhisper Analysis Report", ln=True, align="C")
     pdf.ln(5)
 
-    # Dataset Info Box
     pdf.set_fill_color(*BG_LIGHT)
-    pdf.set_font("Arial", 'B', 12)
+    pdf.set_font("Arial", "B", 12)
     pdf.set_text_color(*DARK_SLATE)
     pdf.cell(0, 10, txt=f" Dataset: {df_name}", ln=True, fill=True)
-    pdf.set_font("Arial", '', 10)
+    pdf.set_font("Arial", "", 10)
     pdf.set_text_color(*TEXT_BLACK)
     pdf.cell(0, 10, txt=f" Rows: {profile['shape'][0]:,} | Columns: {profile['shape'][1]}", ln=True, fill=True)
     pdf.ln(8)
 
-    # Executive Summary
-    pdf.set_font("Arial", 'B', 14)
+    pdf.set_font("Arial", "B", 14)
     pdf.set_text_color(*PRIMARY_BLUE)
     pdf.cell(0, 10, txt="Executive Summary", ln=True)
-    pdf.set_font("Arial", '', 11)
+    pdf.set_font("Arial", "", 11)
     pdf.set_text_color(*TEXT_BLACK)
-    clean_summary = summary_text.encode('latin-1', 'ignore').decode('latin-1')
-    clean_summary = clean_summary.replace('**', '')
+    clean_summary = summary_text.encode("latin-1", "ignore").decode("latin-1").replace("**", "")
     pdf.multi_cell(0, 6, txt=clean_summary)
     pdf.ln(10)
 
-    # Insights section
-    pdf.set_font("Arial", 'B', 16)
+    pdf.set_font("Arial", "B", 16)
     pdf.set_text_color(*PRIMARY_BLUE)
     pdf.cell(0, 10, txt="Key Insights & Phenomenons", ln=True)
     pdf.set_text_color(*TEXT_BLACK)
     pdf.ln(5)
 
     for i, ins in enumerate(insights):
-        clean_title = ins.get('title', '').encode('latin-1', 'ignore').decode('latin-1')
+        clean_title = ins.get("title", "").encode("latin-1", "ignore").decode("latin-1")
 
-        # 1. Title
-        pdf.set_font("Arial", 'B', 12)
+        pdf.set_font("Arial", "B", 12)
         pdf.set_text_color(*DARK_SLATE)
         pdf.cell(0, 10, txt=f"{i+1}. {clean_title}", ln=True)
 
-        # 2. Chart Rendering
         fig = build_chart(ins, df)
         if fig:
             fig.update_layout(
@@ -863,78 +860,89 @@ def create_pdf_report(df_name, profile, summary_text, insights, df):
                 colorway=PALETTE,
                 margin=dict(l=20, r=20, t=60, b=20),
                 showlegend=True,
-                title=dict(text=f"<b>{clean_title}</b>", font=dict(size=16, color="#1a2b4c"), x=0.5, xanchor="center")
+                title=dict(text=f"<b>{clean_title}</b>", font=dict(size=16, color="#1a2b4c"), x=0.5, xanchor="center"),
             )
             fig.update_xaxes(gridcolor="rgba(26, 43, 76, 0.1)", title_font=dict(color="#1a2b4c"), tickfont=dict(color="#1a2b4c"))
             fig.update_yaxes(gridcolor="rgba(26, 43, 76, 0.1)", title_font=dict(color="#1a2b4c"), tickfont=dict(color="#1a2b4c"))
-            
-            # Force legend safely (ignores Heatmaps which don't support legends)
+
             for trace in fig.data:
                 try:
                     trace.showlegend = True
-                    if not getattr(trace, 'name', None) or trace.name == "":
+                    if not getattr(trace, "name", None):
                         trace.name = str(ins.get("y_col") or ins.get("x_col") or "Data")
                 except Exception:
                     pass
 
+            # --- Export image (best effort) ---
+            wrote_image = False
+            tmp_path = None
             try:
-                import tempfile
-                # Safer temporary file handling for Windows
-                tmp_fd, tmp_path = tempfile.mkstemp(suffix=".png")
-                os.close(tmp_fd) 
-                
+                # Parfois nécessaire dans certains environnements
+                import kaleido  # noqa: F401  [web:75]
+
+                fd, tmp_path = tempfile.mkstemp(suffix=".png")
+                os.close(fd)
+
                 fig.write_image(tmp_path, format="png", engine="kaleido", width=700, height=400)
                 pdf.image(tmp_path, w=170)
-                
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except Exception as e:
-                pdf.set_font("Arial", 'I', 9)
+                wrote_image = True
+
+            except Exception:
+                # Sur Streamlit Cloud c’est fréquent -> on continue sans image
+                pdf.set_font("Arial", "I", 9)
                 pdf.set_text_color(200, 0, 0)
-                pdf.cell(0, 7, txt=f"[ Chart image rendering failed. Interactive chart available in dashboard ]", ln=True)
+                pdf.cell(0, 7, txt="[ Chart image not available on this environment ]", ln=True)
                 pdf.set_text_color(*TEXT_BLACK)
+
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
+
         else:
-            pdf.set_font("Arial", 'I', 9)
+            pdf.set_font("Arial", "I", 9)
             pdf.set_text_color(200, 0, 0)
-            pdf.cell(0, 7, txt=f"[ Chart could not be generated for this data slice ]", ln=True)
+            pdf.cell(0, 7, txt="[ Chart could not be generated for this data slice ]", ln=True)
             pdf.set_text_color(*TEXT_BLACK)
 
         pdf.ln(3)
 
-        # 3. Brief Explanation
-        pdf.set_font("Arial", 'B', 11)
+        pdf.set_font("Arial", "B", 11)
         pdf.set_text_color(*PRIMARY_BLUE)
         pdf.cell(0, 8, txt="Explanation:", ln=True)
-        
-        pdf.set_font("Arial", '', 10)
+
+        pdf.set_font("Arial", "", 10)
         pdf.set_text_color(*TEXT_BLACK)
-        clean_desc = ins.get('description', '').encode('latin-1', 'ignore').decode('latin-1')
-        clean_desc = clean_desc.replace('**', '')
+        clean_desc = ins.get("description", "").encode("latin-1", "ignore").decode("latin-1").replace("**", "")
         pdf.multi_cell(0, 6, txt=clean_desc)
         pdf.ln(3)
 
-        # 4. Key Statistics Related to the Graph
-        xc = ins.get("x_col"); yc = ins.get("y_col"); zc = ins.get("z_col")
+        xc, yc, zc = ins.get("x_col"), ins.get("y_col"), ins.get("z_col")
         stats_lines = []
-        for col_name in [xc, yc, zc]:
+        for col_name in (xc, yc, zc):
             if col_name and col_name in df.columns and col_name in profile["numeric_cols"]:
                 cs = profile["col_stats"][col_name]
-                stats_lines.append(f"- {col_name}: Mean = {cs['mean']} | Std = {cs['std']} | Range = {cs['min']} to {cs['max']}")
-                
+                stats_lines.append(
+                    f"- {col_name}: Mean = {cs['mean']} | Std = {cs['std']} | Range = {cs['min']} to {cs['max']}"
+                )
+
         if stats_lines:
-            pdf.set_font("Arial", 'B', 11)
+            pdf.set_font("Arial", "B", 11)
             pdf.set_text_color(*PRIMARY_BLUE)
             pdf.cell(0, 8, txt="Key Statistics:", ln=True)
-            
-            pdf.set_font("Courier", '', 10)
+
+            pdf.set_font("Courier", "", 10)
             pdf.set_text_color(*TEXT_BLACK)
             for line in stats_lines:
-                pdf.cell(0, 6, txt=line.encode('latin-1', 'ignore').decode('latin-1'), ln=True)
-        
+                pdf.cell(0, 6, txt=line.encode("latin-1", "ignore").decode("latin-1"), ln=True)
+
         pdf.ln(10)
 
-    pdf_out = pdf.output(dest='S')
-    return pdf_out.encode('latin-1') if isinstance(pdf_out, str) else bytes(pdf_out)
+    pdf_out = pdf.output(dest="S")
+    return pdf_out.encode("latin-1") if isinstance(pdf_out, str) else bytes(pdf_out)
+
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1275,3 +1283,4 @@ elif st.session_state.view == "dashboard":
         with tab_stats:
 
             st.dataframe(df.describe(include="all").T, use_container_width=True)
+
