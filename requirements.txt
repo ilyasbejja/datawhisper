@@ -8,3 +8,5 @@ kaggle
 fpdf2
 kaleido
 python-dotenv
+tempfile
+
