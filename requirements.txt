@@ -8,6 +8,10 @@ kaggle
 fpdf2
 kaleido==0.1.0.post1
 python-dotenv
+libfontconfig1
+libgl1
+libglib2.0-0
+
 
 
 
