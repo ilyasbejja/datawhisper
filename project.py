@@ -25,7 +25,7 @@ st.set_page_config(
 )
 
 load_dotenv()
-api_key = st.secrets("GROQ_API_KEY")
+api_key = st.secrets["GROQ_API_KEY"]
 
 if not api_key:
     st.error("API Key not found! Please check your .env file.")
@@ -1273,4 +1273,5 @@ elif st.session_state.view == "dashboard":
         with tab_data:
             st.dataframe(df.head(200), use_container_width=True, height=420)
         with tab_stats:
+
             st.dataframe(df.describe(include="all").T, use_container_width=True)
